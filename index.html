@@ -23,8 +23,8 @@
       flex-shrink: 0; 
     }
     
-    .auth-btn {
-      background: rgba(255, 255, 255, 0.8);
+    .sync-btn {
+      background: rgba(255, 255, 255, 0.85);
       border: none;
       padding: 4px 8px;
       border-radius: 10px;
@@ -63,7 +63,7 @@
     .panel-title { font-size: 16px; font-weight: 700; color: #0f172a; }
     .panel-buttons { display: flex; gap: 6px; }
     .btn-add, .btn-img-change { background-color: #fff; border: 1px solid #e2e8f0; padding: 5px 9px; border-radius: 14px; font-size: 11px; font-weight: 600; color: #334155; cursor: pointer; }
-    .panel-subtitle { font-size: 10px; color: #64748b; margin-bottom: 12px; font-weight: 600; }
+    .panel-subtitle { font-size: 10px; color: #059669; margin-bottom: 12px; font-weight: 600; }
     
     .schedule-card { background: #fff; border-radius: 14px; padding: 10px 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
     .schedule-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #1e293b; cursor: pointer; }
@@ -77,7 +77,7 @@
 <div class="app-card">
   <div class="title-bar">
     <span>🪶 ✿ DAYDEN TODO v7.4 ✿</span>
-    <button class="auth-btn" id="loginBtn">구글 로그인</button>
+    <button class="sync-btn" id="syncKeyBtn">🔑 연동 키 설정</button>
   </div>
 
   <div class="banner-container" id="bannerBtn">
@@ -106,89 +106,78 @@
           <button class="btn-add" id="btnAdd">+ 추가</button>
         </div>
       </div>
-      <div class="panel-subtitle" id="statusText">로그인이 필요합니다</div>
+      <div class="panel-subtitle" id="statusText">⚡ 실시간 기기 동기화 중</div>
       <div id="scheduleList"></div>
     </div>
   </div>
 </div>
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
-  // 공용 데모 클라우드 DB 설정
-  const firebaseConfig = {
-    apiKey: "AIzaSyD-demo-key-for-dayden",
-    authDomain: "dayden-todo.firebaseapp.com",
-    projectId: "dayden-todo",
-    storageBucket: "dayden-todo.appspot.com",
-    messagingSenderId: "123456789",
-    appId: "1:123456789:web:demo"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-  const provider = new GoogleAuthProvider();
-
-  let currentUser = null;
+<script>
   let currentDate = new Date(2026, 7, 1);
   let selectedDateStr = '2026-08-27';
+  
+  // 기기 연동용 고유 키 (없으면 자동 생성)
+  let userSyncKey = localStorage.getItem('dayden_user_key');
+  if (!userSyncKey) {
+    userSyncKey = 'dayden_' + Math.random().toString(36).substring(2, 10);
+    localStorage.setItem('dayden_user_key', userSyncKey);
+  }
+
   let schedules = JSON.parse(localStorage.getItem('dayden_schedules')) || [];
 
-  const loginBtn = document.getElementById('loginBtn');
-  const statusText = document.getElementById('statusText');
   const currentMonthText = document.getElementById('currentMonthText');
   const calendarGrid = document.getElementById('calendarGrid');
   const panelTitle = document.getElementById('panelTitle');
   const scheduleList = document.getElementById('scheduleList');
   const bannerImg = document.getElementById('bannerImg');
+  const statusText = document.getElementById('statusText');
 
-  // 구글 로그인 / 로그아웃 클릭
-  loginBtn.addEventListener('click', () => {
-    if (currentUser) {
-      signOut(auth);
-    } else {
-      signInWithPopup(auth, provider).catch(() => {
-        alert('구글 로그인 중 오류가 발생했습니다.');
-      });
+  // 연동키 확인/변경 버튼
+  document.getElementById('syncKeyBtn').addEventListener('click', () => {
+    const inputKey = prompt('PC와 모바일에서 동일하게 사용할 나만의 연동 키(비밀번호)를 입력하세요:', userSyncKey);
+    if (inputKey && inputKey.trim() !== '') {
+      userSyncKey = inputKey.trim();
+      localStorage.setItem('dayden_user_key', userSyncKey);
+      loadFromCloud();
     }
   });
 
-  // 로그인 상태 감지
-  onAuthStateChanged(auth, (user) => {
-    currentUser = user;
-    if (user) {
-      loginBtn.textContent = '로그아웃';
-      statusText.textContent = `⚡ ${user.displayName}님 계정 실시간 동기화 중`;
-      statusText.style.color = '#059669';
-      
-      // 내 계정의 구글 클라우드 DB 실시간 연결
-      onSnapshot(doc(db, "users", user.uid), (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          schedules = data.schedules || [];
-          if (data.banner) bannerImg.src = data.banner;
-          renderCalendar();
-        }
-      });
-    } else {
-      loginBtn.textContent = '구글 로그인';
-      statusText.textContent = '🔒 로컬 모드 (로그인 시 실시간 동기화)';
-      statusText.style.color = '#64748b';
+  // 클라우드 서버에서 데이터 불러오기
+  function loadFromCloud() {
+    statusText.textContent = '🔄 동기화 불러오는 중...';
+    fetch(`https://api.jsonbin.io/v3/b/${userSyncKey}`, {
+      headers: { 'X-Master-Key': '$2a$10$demoKeyPlaceholderForFreeSync' }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data && data.record) {
+        schedules = data.record.schedules || [];
+        if (data.record.banner) bannerImg.src = data.record.banner;
+        localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
+        renderCalendar();
+      }
+      statusText.textContent = `⚡ 연동 키: ${userSyncKey}`;
+    })
+    .catch(() => {
+      statusText.textContent = `⚡ 연동 키: ${userSyncKey} (로컬 모드)`;
       renderCalendar();
-    }
-  });
+    });
+  }
 
-  function saveData() {
+  // 클라우드 서버로 데이터 저장
+  function saveToCloud() {
     localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
-    if (currentUser) {
-      setDoc(doc(db, "users", currentUser.uid), {
+    fetch(`https://api.jsonbin.io/v3/b/${userSyncKey}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': '$2a$10$demoKeyPlaceholderForFreeSync'
+      },
+      body: JSON.stringify({
         schedules: schedules,
         banner: bannerImg.src
-      });
-    }
+      })
+    }).catch(() => {});
   }
 
   document.getElementById('bannerBtn').addEventListener('click', () => document.getElementById('imageInput').click());
@@ -206,7 +195,7 @@
           canvas.width = 500; canvas.height = 250;
           ctx.drawImage(img, 0, 0, 500, 250);
           bannerImg.src = canvas.toDataURL('image/jpeg', 0.7);
-          saveData();
+          saveToCloud();
         };
         img.src = event.target.result;
       };
@@ -251,7 +240,7 @@
       const chip = document.createElement('div');
       chip.className = `chip ${s.completed ? 'completed' : ''}`;
       chip.innerHTML = `<span class="chip-icon">${s.completed ? '✓' : '-'}</span><span>${s.title}</span>`;
-      chip.onclick = (e) => { e.stopPropagation(); s.completed = !s.completed; saveData(); };
+      chip.onclick = (e) => { e.stopPropagation(); s.completed = !s.completed; saveToCloud(); renderCalendar(); };
       cell.appendChild(chip);
     });
 
@@ -290,9 +279,9 @@
     });
   }
 
-  window.toggleComplete = (id) => { const target = schedules.find(s => s.id === id); if (target) { target.completed = !target.completed; saveData(); } };
-  window.editSchedule = (id) => { const target = schedules.find(s => s.id === id); if (!target) return; const newTitle = prompt('수정할 내용:', target.title); if (newTitle) { target.title = newTitle; saveData(); } };
-  window.deleteSchedule = (id) => { if (confirm('삭제하시겠습니까?')) { schedules = schedules.filter(i => i.id !== id); saveData(); } };
+  window.toggleComplete = (id) => { const target = schedules.find(s => s.id === id); if (target) { target.completed = !target.completed; saveToCloud(); renderCalendar(); } };
+  window.editSchedule = (id) => { const target = schedules.find(s => s.id === id); if (!target) return; const newTitle = prompt('수정할 내용:', target.title); if (newTitle) { target.title = newTitle; saveToCloud(); renderCalendar(); } };
+  window.deleteSchedule = (id) => { if (confirm('삭제하시겠습니까?')) { schedules = schedules.filter(i => i.id !== id); saveToCloud(); renderCalendar(); } };
 
   document.getElementById('prevMonth').onclick = () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(); };
   document.getElementById('nextMonth').onclick = () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(); };
@@ -300,12 +289,13 @@
     const title = prompt('일정 이름:', '새 일정');
     if (title) {
       schedules.push({ id: Date.now(), title, startDate: selectedDateStr, endDate: selectedDateStr, completed: false });
-      saveData();
+      saveToCloud();
+      renderCalendar();
     }
   };
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
-  renderCalendar();
+  loadFromCloud();
 </script>
 
 </body>
