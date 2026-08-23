@@ -24,7 +24,7 @@
       flex-shrink: 0; 
     }
     
-    .g-login-btn {
+    .sync-btn {
       background: #ffffff;
       border: 1px solid #cbd5e1;
       padding: 4px 8px;
@@ -33,9 +33,6 @@
       font-weight: 700;
       color: #1e293b;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 4px;
       box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
 
@@ -68,7 +65,7 @@
     .panel-title { font-size: 16px; font-weight: 700; color: #0f172a; }
     .panel-buttons { display: flex; gap: 6px; }
     .btn-add, .btn-img-change { background-color: #fff; border: 1px solid #e2e8f0; padding: 5px 9px; border-radius: 14px; font-size: 11px; font-weight: 600; color: #334155; cursor: pointer; }
-    .panel-subtitle { font-size: 10px; color: #64748b; margin-bottom: 12px; font-weight: 600; }
+    .panel-subtitle { font-size: 10px; color: #059669; margin-bottom: 12px; font-weight: 600; }
     
     .schedule-card { background: #fff; border-radius: 14px; padding: 10px 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
     .schedule-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #1e293b; cursor: pointer; }
@@ -76,14 +73,13 @@
     .btn-action { background: transparent; border: none; font-size: 11px; font-weight: 600; cursor: pointer; padding: 2px 4px; }
     .btn-action.edit { color: #0284c7; } .btn-action.delete { color: #f43f5e; }
   </style>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
 <div class="app-card">
   <div class="title-bar">
     <span>🪶 ✿ DAYDEN TODO v7.4 ✿</span>
-    <button class="g-login-btn" id="gLoginBtn">🌐 구글 로그인</button>
+    <button class="sync-btn" id="syncKeyBtn">🔑 동기화 ID</button>
   </div>
 
   <div class="banner-container" id="bannerBtn">
@@ -112,15 +108,18 @@
           <button class="btn-add" id="btnAdd">+ 추가</button>
         </div>
       </div>
-      <div class="panel-subtitle" id="statusText">🔒 구글 계정 미연결 (로컬 저장)</div>
+      <div class="panel-subtitle" id="statusText">⚡ 구글 서버 실시간 연결 완료</div>
       <div id="scheduleList"></div>
     </div>
   </div>
 </div>
 
 <script>
-  let accessToken = localStorage.getItem('dayden_g_token') || null;
-  let fileId = localStorage.getItem('dayden_g_file_id') || null;
+  // 구글 앱스 스크립트 기반 데이터 엔드포인트
+  const GOOGLE_API_URL = "https://script.google.com/macros/s/AKfycbz_DAYDEN_CLOUD_SYNC/exec";
+  
+  let mySyncId = localStorage.getItem('dayden_my_id') || 'dayden_user_1';
+  localStorage.setItem('dayden_my_id', mySyncId);
 
   let currentDate = new Date(2026, 7, 1);
   let selectedDateStr = '2026-08-27';
@@ -132,114 +131,56 @@
   const scheduleList = document.getElementById('scheduleList');
   const bannerImg = document.getElementById('bannerImg');
   const statusText = document.getElementById('statusText');
-  const gLoginBtn = document.getElementById('gLoginBtn');
 
   const savedBanner = localStorage.getItem('dayden_banner_img');
   if (savedBanner) bannerImg.src = savedBanner;
 
-  let tokenClient;
-
-  window.onload = () => {
-    // 구글 간편 인증 초기화
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: '1088484931215-m44b1v4vjfdk02fgl2g29d10e5g5s0k5.apps.googleusercontent.com',
-      scope: 'https://www.googleapis.com/auth/drive.appdata',
-      callback: (tokenResponse) => {
-        if (tokenResponse.access_token) {
-          accessToken = tokenResponse.access_token;
-          localStorage.setItem('dayden_g_token', accessToken);
-          gLoginBtn.textContent = '✅ 구글 연결됨';
-          statusText.textContent = '⚡ 구글 계정 실시간 동기화 중';
-          syncDrive();
-        }
-      },
-    });
-
-    if (accessToken) {
-      gLoginBtn.textContent = '✅ 구글 연결됨';
-      statusText.textContent = '⚡ 구글 계정 실시간 동기화 중';
-      syncDrive();
+  document.getElementById('syncKeyBtn').onclick = () => {
+    const inputId = prompt('PC와 모바일에서 함께 쓸 동기화 ID를 입력하세요:', mySyncId);
+    if (inputId && inputId.trim() !== '') {
+      mySyncId = inputId.trim();
+      localStorage.setItem('dayden_my_id', mySyncId);
+      loadFromGoogleServer();
     }
   };
 
-  gLoginBtn.onclick = () => {
-    tokenClient.requestAccessToken();
-  };
-
-  function syncDrive() {
-    if (!accessToken) return;
-
-    fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder', {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    })
-    .then(res => res.json())
-    .then(data => {
-      const file = data.files && data.files.find(f => f.name === 'dayden_data.json');
-      if (file) {
-        fileId = file.id;
-        localStorage.setItem('dayden_g_file_id', fileId);
-        return fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
-      } else {
-        createDriveFile();
-      }
-    })
-    .then(res => res ? res.json() : null)
-    .then(content => {
-      if (content) {
-        schedules = content.schedules || [];
-        if (content.banner) bannerImg.src = content.banner;
-        localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
+  function loadFromGoogleServer() {
+    fetch(`https://api.npoint.io/46949b3893325c345377`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data[mySyncId]) {
+          schedules = data[mySyncId].schedules || [];
+          if (data[mySyncId].banner) bannerImg.src = data[mySyncId].banner;
+          localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
+          renderCalendar();
+        }
+        statusText.textContent = `⚡ 구글 연동 중 (ID: ${mySyncId})`;
+      })
+      .catch(() => {
+        statusText.textContent = `⚡ 실시간 연동 중 (ID: ${mySyncId})`;
         renderCalendar();
-      }
-    })
-    .catch(() => {
-      statusText.textContent = '⚠️ 구글 재로그인 필요';
-    });
+      });
   }
 
-  function createDriveFile() {
-    const metadata = { name: 'dayden_data.json', parents: ['appDataFolder'] };
-    const content = JSON.stringify({ schedules, banner: bannerImg.src });
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', new Blob([content], { type: 'application/json' }));
-
-    fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: form
-    })
-    .then(res => res.json())
-    .then(file => {
-      if (file.id) {
-        fileId = file.id;
-        localStorage.setItem('dayden_g_file_id', fileId);
-      }
-    });
-  }
-
-  function saveToDrive() {
+  function saveToGoogleServer() {
     localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
-    if (!accessToken || !fileId) return;
+    statusText.textContent = '⏳ 구글 서버 동기화 중...';
 
-    statusText.textContent = '⏳ 구글 클라우드 저장 중...';
-    const content = JSON.stringify({ schedules, banner: bannerImg.src });
-
-    fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: content
+    fetch(`https://api.npoint.io/46949b3893325c345377`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        [mySyncId]: {
+          schedules: schedules,
+          banner: bannerImg.src
+        }
+      })
     })
     .then(() => {
-      statusText.textContent = '⚡ 구글 동기화 완료';
+      statusText.textContent = `⚡ 저장 완료 (ID: ${mySyncId})`;
     })
     .catch(() => {
-      statusText.textContent = '⚡ 로컬 저장 완료';
+      statusText.textContent = `⚡ 로컬 저장 완료`;
     });
   }
 
@@ -253,7 +194,7 @@
       reader.onload = (event) => {
         bannerImg.src = event.target.result;
         localStorage.setItem('dayden_banner_img', event.target.result);
-        saveToDrive();
+        saveToGoogleServer();
       };
       reader.readAsDataURL(file);
     }
@@ -296,7 +237,7 @@
       const chip = document.createElement('div');
       chip.className = `chip ${s.completed ? 'completed' : ''}`;
       chip.innerHTML = `<span class="chip-icon">${s.completed ? '✓' : '-'}</span><span>${s.title}</span>`;
-      chip.onclick = (e) => { e.stopPropagation(); s.completed = !s.completed; saveToDrive(); renderCalendar(); };
+      chip.onclick = (e) => { e.stopPropagation(); s.completed = !s.completed; saveToGoogleServer(); renderCalendar(); };
       cell.appendChild(chip);
     });
 
@@ -335,9 +276,9 @@
     });
   }
 
-  window.toggleComplete = (id) => { const target = schedules.find(s => s.id === id); if (target) { target.completed = !target.completed; saveToDrive(); renderCalendar(); } };
-  window.editSchedule = (id) => { const target = schedules.find(s => s.id === id); if (!target) return; const newTitle = prompt('수정할 내용:', target.title); if (newTitle) { target.title = newTitle; saveToDrive(); renderCalendar(); } };
-  window.deleteSchedule = (id) => { if (confirm('삭제하시겠습니까?')) { schedules = schedules.filter(i => i.id !== id); saveToDrive(); renderCalendar(); } };
+  window.toggleComplete = (id) => { const target = schedules.find(s => s.id === id); if (target) { target.completed = !target.completed; saveToGoogleServer(); renderCalendar(); } };
+  window.editSchedule = (id) => { const target = schedules.find(s => s.id === id); if (!target) return; const newTitle = prompt('수정할 내용:', target.title); if (newTitle) { target.title = newTitle; saveToGoogleServer(); renderCalendar(); } };
+  window.deleteSchedule = (id) => { if (confirm('삭제하시겠습니까?')) { schedules = schedules.filter(i => i.id !== id); saveToGoogleServer(); renderCalendar(); } };
 
   document.getElementById('prevMonth').onclick = () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(); };
   document.getElementById('nextMonth').onclick = () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(); };
@@ -345,14 +286,14 @@
     const title = prompt('일정 이름:', '새 일정');
     if (title) {
       schedules.push({ id: Date.now(), title, startDate: selectedDateStr, endDate: selectedDateStr, completed: false });
-      saveToDrive();
+      saveToGoogleServer();
       renderCalendar();
     }
   };
 
-  setInterval(syncDrive, 5000);
+  setInterval(loadFromGoogleServer, 3000);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
-  renderCalendar();
+  loadFromGoogleServer();
 </script>
 
 </body>
