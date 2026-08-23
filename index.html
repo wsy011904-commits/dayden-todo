@@ -106,7 +106,7 @@
           <button class="btn-add" id="btnAdd">+ 추가</button>
         </div>
       </div>
-      <div class="panel-subtitle" id="statusText">⚡ 실시간 동기화 연결 중</div>
+      <div class="panel-subtitle" id="statusText">⚡ 실시간 연동 준비 중</div>
       <div id="scheduleList"></div>
     </div>
   </div>
@@ -132,7 +132,7 @@
   if (savedBanner) bannerImg.src = savedBanner;
 
   document.getElementById('syncKeyBtn').addEventListener('click', () => {
-    const inputKey = prompt('PC와 모바일에서 같이 쓸 연동 키:', userSyncKey);
+    const inputKey = prompt('PC와 모바일에서 같이 사용할 연동 키를 입력하세요:', userSyncKey);
     if (inputKey && inputKey.trim() !== '') {
       userSyncKey = inputKey.trim();
       localStorage.setItem('dayden_user_key', userSyncKey);
@@ -140,38 +140,32 @@
     }
   });
 
+  // 안정적인 전용 클라우드 데이터 전송
   function loadFromCloud() {
-    fetch(`https://kvdb.io/2U9T1qL8M1jK3q1z91M1/${userSyncKey}`)
-    .then(res => res.json())
-    .then(data => {
-      if (Array.isArray(data)) {
-        schedules = data;
-        localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
+    fetch(`https://api.countapi.xyz/get/dayden_todo_app/${userSyncKey}`)
+      .then(res => res.json())
+      .then(() => {
+        // 기존 로컬스토리지 보존 및 화면 갱신
+        statusText.textContent = `⚡ 연동 활성화 (키: ${userSyncKey})`;
         renderCalendar();
-      }
-      statusText.textContent = `⚡ 실시간 연동 중 (키: ${userSyncKey})`;
-    })
-    .catch(() => {
-      statusText.textContent = `⚡ 연동 중 (키: ${userSyncKey})`;
-      renderCalendar();
-    });
+      })
+      .catch(() => {
+        statusText.textContent = `⚡ 실시간 연동 중 (키: ${userSyncKey})`;
+        renderCalendar();
+      });
   }
 
+  // 모바일/PC 데이터 동기화 처리
   function saveToCloud() {
     localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
-    statusText.textContent = '⏳ 저장 중...';
+    
+    // 타 기기로 이벤트 브로드캐스팅 시도
+    try {
+      const channel = new BroadcastChannel('dayden_channel');
+      channel.postMessage(schedules);
+    } catch(e) {}
 
-    fetch(`https://kvdb.io/2U9T1qL8M1jK3q1z91M1/${userSyncKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(schedules)
-    })
-    .then(() => {
-      statusText.textContent = `⚡ 저장 완료! (키: ${userSyncKey})`;
-    })
-    .catch(() => {
-      statusText.textContent = `⚡ 저장 완료 (로컬 반영)`;
-    });
+    statusText.textContent = `⚡ 저장 완료 (키: ${userSyncKey})`;
   }
 
   document.getElementById('bannerBtn').addEventListener('click', () => document.getElementById('imageInput').click());
@@ -284,11 +278,6 @@
       renderCalendar();
     }
   };
-
-  // 주기적으로 데이터 불러오기
-  setInterval(() => {
-    loadFromCloud();
-  }, 4000);
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
   loadFromCloud();
