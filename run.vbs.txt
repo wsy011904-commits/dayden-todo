@@ -1,0 +1,9 @@
+Set objShell = CreateObject("WScript.Shell")
+' 1. 지정한 세로 크기(가로 410, 세로 900)로 창 실행
+objShell.Run """C:\Program Files\Google\Chrome\Application\chrome.exe"" --app=""file:///C:/Users/user/Desktop/MyCalendar/index.html"" --window-size=410,900 --window-position=0,0", 1, False
+
+' 2. 창이 켜진 후 크기 고정을 위해 잠시 대기
+WScript.Sleep 500
+
+' 3. 강제로 창 크기 한 번 더 고정
+objShell.SendKeys "% "
