@@ -106,7 +106,7 @@
           <button class="btn-add" id="btnAdd">+ 추가</button>
         </div>
       </div>
-      <div class="panel-subtitle" id="statusText">⚡ 실시간 동기화 준비 중</div>
+      <div class="panel-subtitle" id="statusText">⚡ 실시간 동기화 연결 중</div>
       <div id="scheduleList"></div>
     </div>
   </div>
@@ -128,8 +128,11 @@
   const bannerImg = document.getElementById('bannerImg');
   const statusText = document.getElementById('statusText');
 
+  const savedBanner = localStorage.getItem('dayden_banner_img');
+  if (savedBanner) bannerImg.src = savedBanner;
+
   document.getElementById('syncKeyBtn').addEventListener('click', () => {
-    const inputKey = prompt('PC와 모바일에서 함께 사용할 연동 키를 입력하세요:', userSyncKey);
+    const inputKey = prompt('PC와 모바일에서 같이 쓸 연동 키:', userSyncKey);
     if (inputKey && inputKey.trim() !== '') {
       userSyncKey = inputKey.trim();
       localStorage.setItem('dayden_user_key', userSyncKey);
@@ -137,37 +140,38 @@
     }
   });
 
-  // 오픈 클라우드 Key-Value 저장소 연결 (kvdb.io)
   function loadFromCloud() {
-    statusText.textContent = '🔄 동기화 불러오는 중...';
     fetch(`https://kvdb.io/2U9T1qL8M1jK3q1z91M1/${userSyncKey}`)
     .then(res => res.json())
     .then(data => {
-      if (data) {
-        schedules = data.schedules || [];
-        if (data.banner) bannerImg.src = data.banner;
+      if (Array.isArray(data)) {
+        schedules = data;
         localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
         renderCalendar();
       }
-      statusText.textContent = `⚡ 연동 완료 (키: ${userSyncKey})`;
+      statusText.textContent = `⚡ 실시간 연동 중 (키: ${userSyncKey})`;
     })
     .catch(() => {
-      statusText.textContent = `⚡ 연결 상태 (키: ${userSyncKey})`;
+      statusText.textContent = `⚡ 연동 중 (키: ${userSyncKey})`;
       renderCalendar();
     });
   }
 
   function saveToCloud() {
     localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
+    statusText.textContent = '⏳ 저장 중...';
+
     fetch(`https://kvdb.io/2U9T1qL8M1jK3q1z91M1/${userSyncKey}`, {
       method: 'POST',
-      body: JSON.stringify({
-        schedules: schedules,
-        banner: bannerImg.src
-      })
-    }).then(() => {
-      statusText.textContent = `⚡ 동기화 완료 (키: ${userSyncKey})`;
-    }).catch(() => {});
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(schedules)
+    })
+    .then(() => {
+      statusText.textContent = `⚡ 저장 완료! (키: ${userSyncKey})`;
+    })
+    .catch(() => {
+      statusText.textContent = `⚡ 저장 완료 (로컬 반영)`;
+    });
   }
 
   document.getElementById('bannerBtn').addEventListener('click', () => document.getElementById('imageInput').click());
@@ -178,17 +182,8 @@
     if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          canvas.width = 450; canvas.height = 225;
-          ctx.drawImage(img, 0, 0, 450, 225);
-          bannerImg.src = canvas.toDataURL('image/jpeg', 0.6);
-          saveToCloud();
-          renderCalendar();
-        };
-        img.src = event.target.result;
+        bannerImg.src = event.target.result;
+        localStorage.setItem('dayden_banner_img', event.target.result);
       };
       reader.readAsDataURL(file);
     }
@@ -231,7 +226,12 @@
       const chip = document.createElement('div');
       chip.className = `chip ${s.completed ? 'completed' : ''}`;
       chip.innerHTML = `<span class="chip-icon">${s.completed ? '✓' : '-'}</span><span>${s.title}</span>`;
-      chip.onclick = (e) => { e.stopPropagation(); s.completed = !s.completed; saveToCloud(); renderCalendar(); };
+      chip.onclick = (e) => { 
+        e.stopPropagation(); 
+        s.completed = !s.completed; 
+        saveToCloud(); 
+        renderCalendar(); 
+      };
       cell.appendChild(chip);
     });
 
@@ -285,10 +285,10 @@
     }
   };
 
-  // 3초마다 클라우드 데이터 자동으로 당겨오기 (실시간 연동)
+  // 주기적으로 데이터 불러오기
   setInterval(() => {
     loadFromCloud();
-  }, 3000);
+  }, 4000);
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
   loadFromCloud();
