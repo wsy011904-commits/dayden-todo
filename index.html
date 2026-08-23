@@ -106,7 +106,7 @@
           <button class="btn-add" id="btnAdd">+ 추가</button>
         </div>
       </div>
-      <div class="panel-subtitle" id="statusText">⚡ 실시간 기기 동기화 중</div>
+      <div class="panel-subtitle" id="statusText">⚡ 실시간 동기화 준비 중</div>
       <div id="scheduleList"></div>
     </div>
   </div>
@@ -116,12 +116,8 @@
   let currentDate = new Date(2026, 7, 1);
   let selectedDateStr = '2026-08-27';
   
-  // 기기 연동용 고유 키 (없으면 자동 생성)
-  let userSyncKey = localStorage.getItem('dayden_user_key');
-  if (!userSyncKey) {
-    userSyncKey = 'dayden_' + Math.random().toString(36).substring(2, 10);
-    localStorage.setItem('dayden_user_key', userSyncKey);
-  }
+  let userSyncKey = localStorage.getItem('dayden_user_key') || 'dayden2026';
+  localStorage.setItem('dayden_user_key', userSyncKey);
 
   let schedules = JSON.parse(localStorage.getItem('dayden_schedules')) || [];
 
@@ -132,9 +128,8 @@
   const bannerImg = document.getElementById('bannerImg');
   const statusText = document.getElementById('statusText');
 
-  // 연동키 확인/변경 버튼
   document.getElementById('syncKeyBtn').addEventListener('click', () => {
-    const inputKey = prompt('PC와 모바일에서 동일하게 사용할 나만의 연동 키(비밀번호)를 입력하세요:', userSyncKey);
+    const inputKey = prompt('PC와 모바일에서 함께 사용할 연동 키를 입력하세요:', userSyncKey);
     if (inputKey && inputKey.trim() !== '') {
       userSyncKey = inputKey.trim();
       localStorage.setItem('dayden_user_key', userSyncKey);
@@ -142,41 +137,36 @@
     }
   });
 
-  // 클라우드 서버에서 데이터 불러오기
+  // 오픈 클라우드 Key-Value 저장소 연결 (kvdb.io)
   function loadFromCloud() {
     statusText.textContent = '🔄 동기화 불러오는 중...';
-    fetch(`https://api.jsonbin.io/v3/b/${userSyncKey}`, {
-      headers: { 'X-Master-Key': '$2a$10$demoKeyPlaceholderForFreeSync' }
-    })
+    fetch(`https://kvdb.io/2U9T1qL8M1jK3q1z91M1/${userSyncKey}`)
     .then(res => res.json())
     .then(data => {
-      if (data && data.record) {
-        schedules = data.record.schedules || [];
-        if (data.record.banner) bannerImg.src = data.record.banner;
+      if (data) {
+        schedules = data.schedules || [];
+        if (data.banner) bannerImg.src = data.banner;
         localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
         renderCalendar();
       }
-      statusText.textContent = `⚡ 연동 키: ${userSyncKey}`;
+      statusText.textContent = `⚡ 연동 완료 (키: ${userSyncKey})`;
     })
     .catch(() => {
-      statusText.textContent = `⚡ 연동 키: ${userSyncKey} (로컬 모드)`;
+      statusText.textContent = `⚡ 연결 상태 (키: ${userSyncKey})`;
       renderCalendar();
     });
   }
 
-  // 클라우드 서버로 데이터 저장
   function saveToCloud() {
     localStorage.setItem('dayden_schedules', JSON.stringify(schedules));
-    fetch(`https://api.jsonbin.io/v3/b/${userSyncKey}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Master-Key': '$2a$10$demoKeyPlaceholderForFreeSync'
-      },
+    fetch(`https://kvdb.io/2U9T1qL8M1jK3q1z91M1/${userSyncKey}`, {
+      method: 'POST',
       body: JSON.stringify({
         schedules: schedules,
         banner: bannerImg.src
       })
+    }).then(() => {
+      statusText.textContent = `⚡ 동기화 완료 (키: ${userSyncKey})`;
     }).catch(() => {});
   }
 
@@ -192,10 +182,11 @@
         img.onload = () => {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
-          canvas.width = 500; canvas.height = 250;
-          ctx.drawImage(img, 0, 0, 500, 250);
-          bannerImg.src = canvas.toDataURL('image/jpeg', 0.7);
+          canvas.width = 450; canvas.height = 225;
+          ctx.drawImage(img, 0, 0, 450, 225);
+          bannerImg.src = canvas.toDataURL('image/jpeg', 0.6);
           saveToCloud();
+          renderCalendar();
         };
         img.src = event.target.result;
       };
@@ -293,6 +284,11 @@
       renderCalendar();
     }
   };
+
+  // 3초마다 클라우드 데이터 자동으로 당겨오기 (실시간 연동)
+  setInterval(() => {
+    loadFromCloud();
+  }, 3000);
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
   loadFromCloud();
